@@ -1,0 +1,14 @@
+target/
+*.class
+*.log
+*.txt
+# *.bat (keeping Bat files as they are part of the startup process)
+.vscode/
+.idea/
+*.iml
+*.txt
+server_log.txt
+core_sources.txt
+server_sources.txt
+!README.md
+!pom.xml
