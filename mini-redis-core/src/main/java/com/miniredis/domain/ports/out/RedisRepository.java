@@ -10,11 +10,12 @@ public interface RedisRepository {
 
     boolean delete(String key);
 
-    long dbSize();
+    long databaseSize();
+
+    void flushAll();
 
     long increment(String key);
 
-    // Sorted Set operations
     long zAdd(String key, double score, String member);
 
     long zCard(String key);

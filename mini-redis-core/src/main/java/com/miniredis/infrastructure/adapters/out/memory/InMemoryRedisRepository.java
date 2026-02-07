@@ -1,198 +1,166 @@
 package com.miniredis.infrastructure.adapters.out.memory;
 
-import com.miniredis.domain.constant.RedisConstants;
 import com.miniredis.domain.exception.RedisException;
-import com.miniredis.domain.model.SortedSetMember;
+import com.miniredis.domain.model.RedisSortedSet;
 import com.miniredis.domain.ports.out.RedisRepository;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
+import static com.miniredis.domain.constant.RedisConstants.*;
+import static java.util.Collections.emptyList;
+import static java.util.Objects.isNull;
+import static java.util.Objects.nonNull;
+import org.springframework.stereotype.Repository;
+
+@Slf4j
+@Repository
 public class InMemoryRedisRepository implements RedisRepository {
 
     private final Map<String, Object> store = new ConcurrentHashMap<>();
-    private final Map<String, Long> expirations = new ConcurrentHashMap<>();
-
-    private static class SortedSet {
-        final Map<String, Double> memberToScore = new HashMap<>();
-        final TreeSet<SortedSetMember> scoreToMember = new TreeSet<>();
-
-        SortedSet() {
-        }
-    }
+    private final Map<String, Long> expiries = new ConcurrentHashMap<>();
 
     @Override
-    public void set(String key, String value, Long expiryTimeMillis) {
-        store.put(key, value);
-        if (expiryTimeMillis != null) {
-            expirations.put(key, expiryTimeMillis);
-        } else {
-            expirations.remove(key);
+    public void set(String key, String value, Long expiryTime) {
+        String keyLock = key.intern();
+        synchronized (keyLock) {
+            store.put(key, value);
+            if (nonNull(expiryTime)) {
+                expiries.put(key, expiryTime);
+            } else {
+                expiries.remove(key);
+            }
         }
     }
 
     @Override
     public Optional<String> get(String key) {
-        if (isExpired(key)) {
-            delete(key);
-            return Optional.empty();
-        }
-        Object val = store.get(key);
-        if (val instanceof String) {
-            return Optional.of((String) val);
-        }
-        return Optional.empty();
+        return Optional.ofNullable(fetchAs(key, String.class));
     }
 
     @Override
     public boolean delete(String key) {
-        expirations.remove(key);
-        return store.remove(key) != null;
-    }
-
-    @Override
-    public long dbSize() {
-        cleanupExpired();
-        return store.size();
+        String keyLock = key.intern();
+        synchronized (keyLock) {
+            return removeInternal(key);
+        }
     }
 
     @Override
     public long increment(String key) {
-        synchronized (key.intern()) {
-            if (isExpired(key)) {
-                delete(key);
-            }
-            Object val = store.get(key);
+        String keyLock = key.intern();
+        synchronized (keyLock) {
+            String val = fetchAs(key, String.class);
             long newValue;
-            if (val == null) {
-                newValue = 1;
-            } else if (val instanceof String) {
-                try {
-                    newValue = Long.parseLong((String) val) + 1;
-                } catch (NumberFormatException e) {
-                    throw new RedisException(RedisConstants.ERR_NOT_INTEGER);
-                }
+
+            if (isNull(val)) {
+                newValue = DEFAULT_INCREMENT_START;
             } else {
-                throw new RedisException(RedisConstants.ERR_WRONG_TYPE);
+                try {
+                    newValue = Long.parseLong(val) + 1;
+                } catch (NumberFormatException e) {
+                    throw RedisException.notInteger();
+                }
             }
+
             store.put(key, String.valueOf(newValue));
             return newValue;
         }
     }
 
     @Override
+    public long databaseSize() {
+        cleanupExpired();
+        return (long) store.size();
+    }
+
+    @Override
+    public void flushAll() {
+        store.clear();
+        expiries.clear();
+    }
+
+    @Override
     public long zAdd(String key, double score, String member) {
-        synchronized (key.intern()) {
-            if (isExpired(key)) {
-                delete(key);
-            }
-            Object val = store.get(key);
-            SortedSet zset;
-            if (val == null) {
-                zset = new SortedSet();
+        String keyLock = key.intern();
+        synchronized (keyLock) {
+            RedisSortedSet zset = fetchAs(key, RedisSortedSet.class);
+            if (isNull(zset)) {
+                zset = new RedisSortedSet();
                 store.put(key, zset);
-            } else if (val instanceof SortedSet) {
-                zset = (SortedSet) val;
-            } else {
-                throw new RedisException(RedisConstants.ERR_WRONG_TYPE);
             }
-
-            Double oldScore = zset.memberToScore.put(member, score);
-            if (oldScore != null) {
-                zset.scoreToMember.remove(new SortedSetMember(member, oldScore));
-            }
-            zset.scoreToMember.add(new SortedSetMember(member, score));
-
-            return oldScore == null ? 1 : 0;
+            return zset.add(member, score);
         }
     }
 
     @Override
     public long zCard(String key) {
-        if (isExpired(key)) {
-            delete(key);
-            return 0;
+        String keyLock = key.intern();
+        synchronized (keyLock) {
+            RedisSortedSet zset = fetchAs(key, RedisSortedSet.class);
+            return isNull(zset) ? 0L : zset.size();
         }
-        Object val = store.get(key);
-        if (val instanceof SortedSet) {
-            return ((SortedSet) val).memberToScore.size();
-        }
-        return 0;
     }
 
     @Override
     public Optional<Long> zRank(String key, String member) {
-        if (isExpired(key)) {
-            delete(key);
-            return Optional.empty();
+        String keyLock = key.intern();
+        synchronized (keyLock) {
+            RedisSortedSet zset = fetchAs(key, RedisSortedSet.class);
+            return isNull(zset) ? Optional.empty() : zset.rank(member);
         }
-        Object val = store.get(key);
-        if (val instanceof SortedSet) {
-            SortedSet zset = (SortedSet) val;
-            Double score = zset.memberToScore.get(member);
-            if (score == null)
-                return Optional.empty();
-
-            long rank = 0;
-            for (SortedSetMember m : zset.scoreToMember) {
-                if (m.getMember().equals(member))
-                    return Optional.of(rank);
-                rank++;
-            }
-        }
-        return Optional.empty();
     }
 
     @Override
     public List<String> zRange(String key, int start, int stop) {
-        if (isExpired(key)) {
-            delete(key);
-            return Collections.emptyList();
+        String keyLock = key.intern();
+        synchronized (keyLock) {
+            RedisSortedSet zset = fetchAs(key, RedisSortedSet.class);
+            return isNull(zset) ? emptyList() : zset.range(start, stop);
         }
-        Object val = store.get(key);
-        if (val instanceof SortedSet) {
-            SortedSet zset = (SortedSet) val;
-            List<String> allMembers = zset.scoreToMember.stream()
-                    .map(SortedSetMember::getMember)
-                    .collect(Collectors.toList());
-
-            int size = allMembers.size();
-            if (size == 0)
-                return Collections.emptyList();
-
-            // Handle negative indices
-            if (start < 0)
-                start = size + start;
-            if (stop < 0)
-                stop = size + stop;
-
-            if (start < 0)
-                start = 0;
-            if (start >= size)
-                return Collections.emptyList();
-            if (stop >= size)
-                stop = size - 1;
-            if (start > stop)
-                return Collections.emptyList();
-
-            return allMembers.subList(start, stop + 1);
-        }
-        return Collections.emptyList();
     }
 
     @Override
     public void cleanupExpired() {
         long now = System.currentTimeMillis();
-        expirations.forEach((key, expiry) -> {
-            if (now >= expiry) {
-                delete(key);
+        expiries.entrySet().removeIf(entry -> {
+            if (now > entry.getValue()) {
+                store.remove(entry.getKey());
+                return true;
             }
+            return false;
         });
     }
 
-    private boolean isExpired(String key) {
-        Long expiry = expirations.get(key);
-        return expiry != null && System.currentTimeMillis() >= expiry;
+    private <T> T fetchAs(String key, Class<T> type) {
+        checkExpiration(key);
+        Object val = store.get(key);
+        if (nonNull(val) && !type.isInstance(val)) {
+            throw RedisException.wrongType();
+        }
+        return type.cast(val);
+    }
+
+    private void checkExpiration(String key) {
+        long now = System.currentTimeMillis();
+        if (isExpired(key, now)) {
+            String keyLock = key.intern();
+            synchronized (keyLock) {
+                if (isExpired(key, now)) {
+                    removeInternal(key);
+                }
+            }
+        }
+    }
+
+    private boolean removeInternal(String key) {
+        expiries.remove(key);
+        return store.remove(key) != null;
+    }
+
+    private boolean isExpired(String key, long now) {
+        Long expiry = expiries.get(key);
+        return nonNull(expiry) && now > expiry;
     }
 }

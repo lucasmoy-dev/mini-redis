@@ -1,56 +1,69 @@
-# ⚡ Mini Redis - Multi-Module Implementation
+# 🚀 Mini Redis - Java Implementation
 
-![Mini Redis Dashboard](mini_redis_dashboard_mockup_1770236327085.png)
+A high-performance, thread-safe implementation of a Redis-like server in Java, designed with **Hexagonal Architecture** (Ports and Adapters) and built on **Spring Boot**.
 
-A high-performance, professional implementation of a Redis-like service built with **Java** and **Hexagonal Architecture**. This project features a multi-module Maven structure, a RESTful API with Swagger, BDD Acceptance Tests, and a futuristic Interactive Dashboard.
+## 🏗️ Architecture
+This project follows **Domain-Driven Design (DDD)** and **Clean Architecture** principles:
+- **`mini-redis-core`**: The heart of the application. Contains domain models, business logic (Services), and Port definitions. It is decoupled from infrastructure.
+- **`mini-redis-server`**: Infrastructure layer. Implements the REST API, Command Line Interface (via Web), and Spring Boot configuration.
+- **`mini-redis-tests`**: Integration and acceptance tests to ensure protocol compliance.
 
-## 🚀 Key Features
+## 🛠️ Key Features
+- **Thread-Safety**: Uses segmented locking (per-key mutex) for maximum concurrency.
+- **Automated Expiration**: Supports TTL (Time To Live) with lazy cleanup.
+- **Dual Interface**: Access via standard **Redis Commands** or a modern **REST API**.
+- **Hexagonal Design**: Business logic is completely independent of the web framework.
 
-*   **Core Logic Engine**: Support for fundamental Redis commands (`SET`, `GET`, `DEL`, `INCR`, `DBSIZE`) and data structures like **Sorted Sets** (`ZADD`, `ZCARD`, `ZRANK`, `ZRANGE`).
-*   **Hexagonal Architecture**: Clear separation between Domain, Application, and Infrastructure layers to ensure high maintainability and testability.
-*   **RESTful API**: Exposes the Redis engine via Spring Boot with a prefix `/api` and full **Swagger/OpenAPI** documentation.
-*   **Interactive Dashboard**: A premium **Glassmorphism** web interface with a real-time console, live stats, and a dramatic "Big Bang" introduction effect.
-*   **Robust Parser**: Support for complex commands, including quoted strings with spaces (e.g., `SET key 'Hello World'`).
-*   **Acceptance Testing**: End-to-end BDD tests using **Cucumber** and **RestAssured**.
-
-## 🏗️ Project Structure
-
-The project is divided into specialized Maven modules:
-
-*   `mini-redis-core`: The pure Java domain and application logic. Zero dependencies on external frameworks (Hexagonal Core).
-*   `mini-redis-server`: Spring Boot entry point, REST adapters, and Swagger configuration.
-*   `mini-redis-tests`: BDD Acceptance Tests module that treats the system as a black box.
-*   `mini-redis-dashboard`: Futuristic frontend built with HTML5/CSS3/VanillaJS, served directly by the server.
-
-## 🛠️ Getting Started
+## 🚀 Getting Started
 
 ### Prerequisites
-*   Java 8 or higher
-*   Maven 3.x (Optional, scripts provided for manual builds)
+- **JDK 11+** (Recommended) or JDK 8
+- **Maven 3.8+**
 
-### Build and Run
-1.  **Compile the whole project**:
-    ```bash
-    # Usage of provided batch scripts for environment compatibility
-    compile_server.bat
-    ```
+### 1. Build and Install
+Since this is a multi-module project, you must install the modules to your local repository first:
+```bash
+mvn clean install -DskipTests
+```
 
-2.  **Start the Server**:
-    ```bash
-    run_server.bat
-    ```
+### 2. Run the Server
+```bash
+mvn spring-boot:run -pl mini-redis-server
+```
 
-3.  **Access the Dashboard**:
-    Open your browser at:
-    👉 [http://localhost:8080/index.html](http://localhost:8080/index.html)
+### 3. Access the Interactive Dashboard
+Open your browser and navigate to:
+👉 **[http://localhost:8080](http://localhost:8080)**
 
-4.  **Explore the API**:
-    Documentation available at:
-    👉 [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
+### 4. Run Tests
+```bash
+# Run all tests (including Acceptance tests)
+mvn test
+```
 
-## 🧪 Testing
+## 📡 Networking & API Options
 
-To run the BDD acceptance tests, use the Cucumber runner located in the `mini-redis-tests` module. Alternatively, you can verify the system manually using the `run_acceptance_manual.bat` script.
+### Standard Command Interface
+Execute any command via query parameter:
+- `GET localhost:8080/api?cmd=SET user:1 Lucas`
+- `GET localhost:8080/api?cmd=GET user:1`
+
+### RESTful Interface
+- **SET**: `PUT localhost:8080/api/{key}` (Body: value)
+- **GET**: `GET localhost:8080/api/{key}`
+- **DELETE**: `DELETE localhost:8080/api/{key}`
+
+## ⚡ Supported Commands
+
+| Category | Command | Description |
+| :--- | :--- | :--- |
+| **Strings** | `SET` `GET` `DEL` `INCR` | Basic key-value operations and atomic increment. |
+| **Sorted Sets** | `ZADD` `ZCARD` `ZRANK` `ZRANGE` | Scoring-based sets with O(log N) operations. |
+| **Database** | `DBSIZE` | Total keys count. |
+
+## 🛡️ Input Constraints
+To ensure compatibility, keys and values must match the pattern: `[a-zA-Z0-9-_:]`.
+Non-existent keys return `(nil)`.
 
 ---
-*Built with ❤️ for the Mini Redis Challenge.*
+Developed by **Lucasmoy** - *Bringing high-performance Redis to the Java world.*
